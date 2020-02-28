@@ -121,7 +121,7 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 		}
 	}
 
-	private void fillModelFromPDML(final String pdmlFile) throws IOException, ParserConfigurationException, SAXException, XPathExpressionException { // TODO remove static
+	private void fillModelFromPDML(final String pdmlFile) throws IOException, ParserConfigurationException, SAXException, XPathExpressionException {
 		DocumentBuilderFactory factory =
 			DocumentBuilderFactory.newInstance();
 		DocumentBuilder builder = factory.newDocumentBuilder();
