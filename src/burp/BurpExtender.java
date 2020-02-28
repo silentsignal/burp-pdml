@@ -16,13 +16,13 @@ import org.w3c.dom.*;
 import org.xml.sax.SAXException;
 
 public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener, ActionListener {
-	private final static String XPATH_REQUEST_METHODS = "//field[@name='http.request.method']";
+	private final static String XPATH_REQUEST_METHODS = "/pdml/packet/proto/field/field[@name='http.request.method']";
 	private final static String XPATH_REQUEST_LINES = "field[@name='http.request.line']/@value";
 	private final static String XPATH_REQUEST_URI = "field[@name='http.request.full_uri']/@show";
 	private final static String XPATH_REQUEST_TS = "../proto[@name='geninfo']/field[@name='timestamp']/@show";
 	private final static String XPATH_REQUEST_ID = "../proto[@name='geninfo']/field[@name='num']/@show";
 	private final static String XPATH_REQUEST_RESP = "field[@name='http.response_in']/@show";
-	private final static String XPATH_RESPONSE_BY_ID = "//proto[@name='geninfo']/field[@name='num' and @show=%d]/../../proto[@name='http']//field[@name='http.response.code']";
+	private final static String XPATH_RESPONSE_BY_ID = "/pdml/packet/proto[@name='geninfo']/field[@name='num' and @show=%d]/../../proto[@name='http']//field[@name='http.response.code']";
 	private final static String XPATH_RESPONSE_LINES = "field[@name='http.response.line']/@value";
 	private final static String XPATH_FILE_DATA = "field[@name='http.file_data']/@value";
 	// TODO use table instead of list
