@@ -185,7 +185,7 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 		}
 	}
 
-	private byte[] decodeHex(StringBuilder sb) {
+	private static byte[] decodeHex(StringBuilder sb) {
 		final int digits = sb.length();
 		final int bytes = digits / 2;
 		final byte[] result = new byte[bytes];
