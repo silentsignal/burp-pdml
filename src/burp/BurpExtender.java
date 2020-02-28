@@ -163,7 +163,6 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 			String ts = (String) reqTimestamp.evaluate(topLevel, XPathConstants.STRING);
 			int id = Integer.valueOf((String)reqId.evaluate(topLevel, XPathConstants.STRING));
 
-			System.err.println(url);
 			XPathExpression respById = xPath.compile(String.format(XPATH_RESPONSE_BY_ID,
 						Integer.valueOf((String)reqRespIn.evaluate(topLevel, XPathConstants.STRING))));
 			Node responseCode = (Node) respById.evaluate(doc, XPathConstants.NODE);
