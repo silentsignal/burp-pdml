@@ -130,6 +130,7 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 			doc = builder.parse(s);
 		}
 		XPath xPath =  XPathFactory.newInstance().newXPath();
+		StringBuilder sb = new StringBuilder();
 		
 		NodeList methods = (NodeList) xPath.compile(XPATH_REQUEST_METHODS).evaluate(doc, XPathConstants.NODESET);
 
@@ -142,7 +143,7 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 		XPathExpression fileData = xPath.compile(XPATH_FILE_DATA);
 
 		for (int i = 0; i < methods.getLength(); i++) {
-			StringBuilder sb = new StringBuilder();
+			sb.setLength(0);
 			Node method = methods.item(i);
 			String verb = method.getAttributes().getNamedItem("show").getNodeValue();
 			Node firstField = method.getParentNode();
