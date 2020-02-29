@@ -143,23 +143,10 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 		XPathExpression fileData = xPath.compile(XPATH_FILE_DATA);
 
 		for (int i = 0; i < methods.getLength(); i++) {
-			sb.setLength(0);
 			Node method = methods.item(i);
 			String verb = method.getAttributes().getNamedItem("show").getNodeValue();
-			Node firstField = method.getParentNode();
-			Node topLevel = firstField.getParentNode();
-			sb.append(firstField.getAttributes().getNamedItem("value").getNodeValue());
-			NodeList lines = (NodeList) reqLines.evaluate(topLevel, XPathConstants.NODESET);
-			for (int j = 0; j < lines.getLength(); j++) {
-				sb.append(lines.item(j).getNodeValue());
-			}
-			String fd = (String) fileData.evaluate(topLevel, XPathConstants.STRING);
-			sb.append("0d0a");
-			if (fd != null) {
-				sb.append(fd);
-			}
-			byte[] req = decodeHex(sb);
-			sb.setLength(0);
+			byte[] req = finishWithBody(reqLines, fileData, sb, method);
+			Node topLevel = method.getParentNode().getParentNode();
 			URL url = new URL((String) reqUri.evaluate(topLevel, XPathConstants.STRING));
 			String ts = (String) reqTimestamp.evaluate(topLevel, XPathConstants.STRING);
 			int id = Integer.valueOf((String)reqId.evaluate(topLevel, XPathConstants.STRING));
@@ -168,21 +155,27 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 						Integer.valueOf((String)reqRespIn.evaluate(topLevel, XPathConstants.STRING))));
 			Node responseCode = (Node) respById.evaluate(doc, XPathConstants.NODE);
 			short status = Short.parseShort(responseCode.getAttributes().getNamedItem("show").getNodeValue());
-			firstField = responseCode.getParentNode();
-			sb.append(firstField.getAttributes().getNamedItem("value").getNodeValue());
-			topLevel = firstField.getParentNode();
-			lines = (NodeList) respLines.evaluate(topLevel, XPathConstants.NODESET);
-			for (int j = 0; j < lines.getLength(); j++) {
-				sb.append(lines.item(j).getNodeValue());
-			}
-			fd = (String) fileData.evaluate(topLevel, XPathConstants.STRING);
-			sb.append("0d0a");
-			if (fd != null) {
-				sb.append(fd);
-			}
-			byte[] resp = decodeHex(sb);
+			byte[] resp = finishWithBody(respLines, fileData, sb, responseCode);
 			model.addElement(new Entry(req, resp, verb, url, ts, status, id));
 		}
+	}
+
+	private static byte[] finishWithBody(XPathExpression headers, XPathExpression fileData,
+			StringBuilder sb, Node firstFieldChild) throws XPathExpressionException {
+		Node firstField = firstFieldChild.getParentNode();
+		sb.setLength(0);
+		Node topLevel = firstField.getParentNode();
+		sb.append(firstField.getAttributes().getNamedItem("value").getNodeValue());
+		NodeList lines = (NodeList) headers.evaluate(topLevel, XPathConstants.NODESET);
+		for (int j = 0; j < lines.getLength(); j++) {
+			sb.append(lines.item(j).getNodeValue());
+		}
+		String fd = (String) fileData.evaluate(topLevel, XPathConstants.STRING);
+		sb.append("0d0a");
+		if (fd != null) {
+			sb.append(fd);
+		}
+		return decodeHex(sb);
 	}
 
 	private static byte[] decodeHex(StringBuilder sb) {
