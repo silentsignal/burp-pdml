@@ -8,23 +8,11 @@ import java.net.*;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.event.*;
-import javax.xml.bind.DatatypeConverter;
 import javax.xml.parsers.*;
-import javax.xml.namespace.QName;
-import javax.xml.xpath.*;
-import org.w3c.dom.*;
-import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.*;
 
-public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener, ActionListener {
-	private final static String XPATH_REQUEST_METHODS = "/pdml/packet/proto/field/field[@name='http.request.method']";
-	private final static String XPATH_REQUEST_LINES = "field[@name='http.request.line']/@value";
-	private final static String XPATH_REQUEST_URI = "field[@name='http.request.full_uri']/@show";
-	private final static String XPATH_REQUEST_TS = "../proto[@name='geninfo']/field[@name='timestamp']/@show";
-	private final static String XPATH_REQUEST_ID = "../proto[@name='geninfo']/field[@name='num']/@show";
-	private final static String XPATH_REQUEST_RESP = "field[@name='http.response_in']/@show";
-	private final static String XPATH_RESPONSE_BY_ID = "/pdml/packet/proto[@name='geninfo']/field[@name='num' and @show=%d]/../../proto[@name='http']//field[@name='http.response.code']";
-	private final static String XPATH_RESPONSE_LINES = "field[@name='http.response.line']/@value";
-	private final static String XPATH_FILE_DATA = "field[@name='http.file_data']/@value";
+public class BurpExtender extends DefaultHandler implements IBurpExtender, ITab, ListSelectionListener, ActionListener {
 	// TODO use table instead of list
 	private final DefaultListModel<Entry> model = new DefaultListModel<>();
 	private final JList<Entry> list = new JList<>(model);
@@ -33,6 +21,33 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 	private IMessageEditor requestViewer, responseViewer;
 	private final EntryProxy proxy = new EntryProxy();
 	private IBurpExtenderCallbacks callbacks;
+
+	private static class Request {
+		public final byte[] request;
+		private final String host, protocol, verb, timestamp;
+		private final int port, id;
+		private final URL url;
+
+		public Request(byte[] request, String verb, URL url,
+				String timestamp, int id) {
+			this.request = request;
+			this.verb = verb;
+			this.url = url;
+			int port = url.getPort();
+			if (port == -1) {
+				port = url.getProtocol().equalsIgnoreCase("https") ? 443 : 80;
+			}
+			this.port = port;
+			this.host = url.getHost();
+			this.protocol = url.getProtocol();
+			this.timestamp = timestamp;
+			this.id = id;
+		}
+
+		public Entry complete(byte[] response, short status) {
+			return new Entry(request, response, verb, url, timestamp, status, id);
+		}
+	}
 
 	private static class Entry implements IHttpService {
 		public final byte[] request, response;
@@ -114,68 +129,100 @@ public class BurpExtender implements IBurpExtender, ITab, ListSelectionListener,
 		final JFileChooser fileChooser = new JFileChooser();
 		if (fileChooser.showOpenDialog(list) == JFileChooser.APPROVE_OPTION) {
 			try {
-				fillModelFromPDML(fileChooser.getSelectedFile().getPath());
+				fillModelFromPDML(fileChooser.getSelectedFile());
 			} catch (Exception e) {
 				e.printStackTrace(new PrintStream(callbacks.getStderr()));
 			}
 		}
 	}
 
-	private void fillModelFromPDML(final String pdmlFile) throws IOException, ParserConfigurationException, SAXException, XPathExpressionException {
-		DocumentBuilderFactory factory =
-			DocumentBuilderFactory.newInstance();
-		DocumentBuilder builder = factory.newDocumentBuilder();
-		Document doc;
-		try (InputStream s = new FileInputStream(pdmlFile)) {
-			doc = builder.parse(s);
-		}
-		XPath xPath =  XPathFactory.newInstance().newXPath();
-		StringBuilder sb = new StringBuilder();
-		
-		NodeList methods = (NodeList) xPath.compile(XPATH_REQUEST_METHODS).evaluate(doc, XPathConstants.NODESET);
+	private Map<Integer, Request> requests = new HashMap<Integer, Request>();
+	private int frameNumber;
+	private Integer responseIn;
+	private String protoName, timestamp, method;
+	private StringBuilder sb = null;
+	private URL url;
+	private short status;
 
-		XPathExpression reqLines = xPath.compile(XPATH_REQUEST_LINES);
-		XPathExpression reqUri = xPath.compile(XPATH_REQUEST_URI);
-		XPathExpression reqTimestamp = xPath.compile(XPATH_REQUEST_TS);
-		XPathExpression reqId = xPath.compile(XPATH_REQUEST_ID);
-		XPathExpression reqRespIn = xPath.compile(XPATH_REQUEST_RESP);
-		XPathExpression respLines = xPath.compile(XPATH_RESPONSE_LINES);
-		XPathExpression fileData = xPath.compile(XPATH_FILE_DATA);
+	@Override
+	public void startDocument() throws SAXException {
+		sb = new StringBuilder();
+	}
 
-		for (int i = 0; i < methods.getLength(); i++) {
-			Node method = methods.item(i);
-			String verb = method.getAttributes().getNamedItem("show").getNodeValue();
-			byte[] req = finishWithBody(reqLines, fileData, sb, method);
-			Node topLevel = method.getParentNode().getParentNode();
-			URL url = new URL((String) reqUri.evaluate(topLevel, XPathConstants.STRING));
-			String ts = (String) reqTimestamp.evaluate(topLevel, XPathConstants.STRING);
-			int id = Integer.valueOf((String)reqId.evaluate(topLevel, XPathConstants.STRING));
+	@Override
+	public void endDocument() throws SAXException {
+		requests.clear();
+		sb = null; // let the GC free the buffer
+	}
 
-			XPathExpression respById = xPath.compile(String.format(XPATH_RESPONSE_BY_ID,
-						Integer.valueOf((String)reqRespIn.evaluate(topLevel, XPathConstants.STRING))));
-			Node responseCode = (Node) respById.evaluate(doc, XPathConstants.NODE);
-			short status = Short.parseShort(responseCode.getAttributes().getNamedItem("show").getNodeValue());
-			byte[] resp = finishWithBody(respLines, fileData, sb, responseCode);
-			model.addElement(new Entry(req, resp, verb, url, ts, status, id));
+	@Override
+	public void startElement(String namespaceURI, String localName,
+			String qName, Attributes atts) throws SAXException {
+		switch (localName) {
+			case "proto":
+				protoName = atts.getValue("name");
+				if (protoName.equals("http")) {
+					responseIn = null;
+					sb.setLength(0);
+				}
+				break;
+			case "field":
+				switch (atts.getValue("name")) {
+					case "num":
+						if (protoName.equals("geninfo")) {
+							frameNumber = Integer.parseInt(atts.getValue("show"));
+						}
+						break;
+					case "timestamp":
+						timestamp = atts.getValue("show");
+						break;
+					case "http.response_in":
+						responseIn = Integer.valueOf(atts.getValue("show"));
+						break;
+					case "":
+						if (!protoName.equals("http")) break;
+					case "http.request.line":
+					case "http.response.line":
+					case "http.file_data":
+						sb.append(atts.getValue("value"));
+						break;
+					case "http.request.method":
+						method = atts.getValue("show");
+						break;
+					case "http.request.full_uri":
+						try {
+							url = new URL(atts.getValue("show"));
+						} catch (Exception e) {
+							e.printStackTrace(new PrintStream(callbacks.getStderr()));
+						}
+						break;
+					case "http.response.code":
+						status = Short.parseShort(atts.getValue("show"));
+						break;
+				}
+				break;
 		}
 	}
 
-	private static byte[] finishWithBody(XPathExpression headers, XPathExpression fileData,
-			StringBuilder sb, Node firstFieldChild) throws XPathExpressionException {
-		Node firstField = firstFieldChild.getParentNode();
-		sb.setLength(0);
-		Node topLevel = firstField.getParentNode();
-		sb.append(firstField.getAttributes().getNamedItem("value").getNodeValue());
-		NodeList lines = (NodeList) headers.evaluate(topLevel, XPathConstants.NODESET);
-		for (int j = 0; j < lines.getLength(); j++) {
-			sb.append(lines.item(j).getNodeValue());
+	@Override
+	public void endElement(String uri, String localName, String qName) {
+		if (localName.equals("proto") && protoName.equals("http")) {
+			byte[] decoded = decodeHex(sb);
+			if (responseIn == null) {
+				model.addElement(requests.get(frameNumber).complete(decoded, status));
+			} else {
+				requests.put(responseIn, new Request(decoded, method, url, timestamp, frameNumber));
+			}
 		}
-		String fd = (String) fileData.evaluate(topLevel, XPathConstants.STRING);
-		sb.append("0d0a");
-		if (fd != null) {
-			sb.append(fd);
-		}
-		return decodeHex(sb);
+	}
+
+	private void fillModelFromPDML(final File pdmlFile)
+			throws IOException, ParserConfigurationException, SAXException {
+
+		SAXParserFactory spf = SAXParserFactory.newInstance();
+		spf.setNamespaceAware(true);
+		SAXParser saxParser = spf.newSAXParser();
+		saxParser.parse(pdmlFile, this);
 	}
 
 	private static byte[] decodeHex(StringBuilder sb) {
