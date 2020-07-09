@@ -209,7 +209,8 @@ public class BurpExtender extends DefaultHandler implements IBurpExtender, ITab,
 		if (localName.equals("proto") && protoName.equals("http")) {
 			byte[] decoded = decodeHex(sb);
 			if (responseIn == null) {
-				model.addElement(requests.get(frameNumber).complete(decoded, status));
+				Request r = requests.get(frameNumber);
+				if (r != null) model.addElement(r.complete(decoded, status));
 			} else {
 				requests.put(responseIn, new Request(decoded, method, url, timestamp, frameNumber));
 			}
